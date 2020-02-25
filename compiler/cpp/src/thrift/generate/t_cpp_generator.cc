@@ -68,6 +68,7 @@ public:
     gen_moveable_ = false;
     gen_no_ostream_operators_ = false;
     gen_no_skeleton_ = false;
+    gen_suppport_export_ = false;
 
     for( iter = parsed_options.begin(); iter != parsed_options.end(); ++iter) {
       if( iter->first.compare("pure_enums") == 0) {
@@ -87,8 +88,10 @@ public:
         gen_moveable_ = true;
       } else if ( iter->first.compare("no_ostream_operators") == 0) {
         gen_no_ostream_operators_ = true;
-      } else if ( iter->first.compare("no_skeleton") == 0) {
-        gen_no_skeleton_ = true;
+      } else if (iter->first.compare("no_skeleton") == 0) {
+          gen_no_skeleton_ = true;
+      } else if (iter->first.compare("support_export") == 0) {
+          gen_suppport_export_ = true;
       } else {
         throw "unknown option cpp:" + iter->first;
       }
@@ -299,6 +302,11 @@ private:
   std::string get_include_prefix(const t_program& program) const;
 
   /**
+  * Returns export string if support export, or the empty string if don't support export.
+  */
+  string t_cpp_generator::get_export() const;
+
+  /**
    * True if we should generate pure enums for Thrift enums, instead of wrapper classes.
    */
   bool gen_pure_enums_;
@@ -349,6 +357,11 @@ private:
    * True if we should generate skeleton.
    */
   bool gen_no_skeleton_;
+
+  /**
+  * True if we should support export(windows).
+  */
+  bool gen_suppport_export_;
 
   /**
    * Strings for namespace, computed once up front then used directly
@@ -435,6 +448,15 @@ void t_cpp_generator::init_generator() {
     f_types_tcc_ << "#include \"" << get_include_prefix(*include) << include->get_name()
                  << "_types.tcc\"" << endl;
   }
+
+  if (gen_suppport_export_){
+      f_types_ << endl << "#ifdef THRIFT_EXPORTS" << endl
+          << "#  define THRIFT_API __declspec(dllexport)" << endl
+          << "#else" << endl
+          << "#  define THRIFT_API __declspec(dllimport)" << endl
+          << "#endif" << endl;
+  }
+
   f_types_ << endl;
 
   // Include custom headers
@@ -1081,7 +1103,7 @@ void t_cpp_generator::generate_struct_declaration(ostream& out,
   generate_java_doc(out, tstruct);
 
   // Open struct def
-  out << indent() << "class " << tstruct->get_name() << extends << " {" << endl << indent()
+  out << indent() << "class " << get_export() << tstruct->get_name() << extends << " {" << endl << indent()
       << " public:" << endl << endl;
   indent_up();
 
@@ -1942,7 +1964,7 @@ void t_cpp_generator::generate_service_interface(t_service* tservice, string sty
 
   generate_java_doc(f_header_, tservice);
 
-  f_header_ << "class " << service_if_name << extends << " {" << endl << " public:" << endl;
+  f_header_ << "class " << get_export() << service_if_name << extends << " {" << endl << " public:" << endl;
   indent_up();
   f_header_ << indent() << "virtual ~" << service_if_name << "() {}" << endl;
 
@@ -2004,7 +2026,7 @@ void t_cpp_generator::generate_service_interface_factory(t_service* tservice, st
     extends = " : virtual public " + type_name(tservice->get_extends()) + style + "IfFactory";
   }
 
-  f_header_ << "class " << factory_name << extends << " {" << endl << " public:" << endl;
+  f_header_ << "class " << get_export() << factory_name << extends << " {" << endl << " public:" << endl;
   indent_up();
   f_header_ << indent() << "typedef " << service_if_name << " Handler;" << endl << endl << indent()
             << "virtual ~" << factory_name << "() {}" << endl << endl << indent() << "virtual "
@@ -2017,7 +2039,7 @@ void t_cpp_generator::generate_service_interface_factory(t_service* tservice, st
 
   // Generate the singleton factory class
   string singleton_factory_name = service_if_name + "SingletonFactory";
-  f_header_ << "class " << singleton_factory_name << " : virtual public " << factory_name << " {"
+  f_header_ << "class " << get_export() << singleton_factory_name << " : virtual public " << factory_name << " {"
             << endl << " public:" << endl;
   indent_up();
   f_header_ << indent() << singleton_factory_name << "(const ::std::shared_ptr<" << service_if_name
@@ -2045,7 +2067,7 @@ void t_cpp_generator::generate_service_null(t_service* tservice, string style) {
   if (tservice->get_extends() != NULL) {
     extends = " , virtual public " + type_name(tservice->get_extends()) + style + "Null";
   }
-  f_header_ << "class " << service_name_ << style << "Null : virtual public " << service_name_
+  f_header_ << "class " << get_export()<< service_name_ << style << "Null : virtual public " << service_name_
             << style << "If" << extends << " {" << endl << " public:" << endl;
   indent_up();
   f_header_ << indent() << "virtual ~" << service_name_ << style << "Null() {}" << endl;
@@ -2327,7 +2349,7 @@ void t_cpp_generator::generate_service_client(t_service* tservice, string style)
                  "// out of order responses.  It is slower than the regular client, so should\n"
                  "// only be used when you need to share a connection among multiple threads\n";
   }
-  f_header_ << template_header << "class " << service_name_ << style << "Client" << short_suffix
+  f_header_ << template_header << "class " << get_export() << service_name_ << style << "Client" << short_suffix
             << " : "
             << "virtual public " << service_name_ << ifstyle << if_suffix << extends_client << " {"
             << endl << " public:" << endl;
@@ -4550,6 +4572,14 @@ string t_cpp_generator::get_include_prefix(const t_program& program) const {
   return "";
 }
 
+string t_cpp_generator::get_export() const {
+    if (gen_suppport_export_)
+    {
+        return "THRIFT_API ";
+    }
+    return "";
+}
+
 THRIFT_REGISTER_GENERATOR(
     cpp,
     "C++",
@@ -4564,4 +4594,5 @@ THRIFT_REGISTER_GENERATOR(
     "    moveable_types:  Generate move constructors and assignment operators.\n"
     "    no_ostream_operators:\n"
     "                     Omit generation of ostream definitions.\n"
-    "    no_skeleton:     Omits generation of skeleton.\n")
+    "    no_skeleton:     Omits generation of skeleton.\n"
+    "    support_export:  Windows export support\n")
